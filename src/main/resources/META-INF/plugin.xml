@@ -1,0 +1,44 @@
+<!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
+<idea-plugin>
+    <id>com.github.commitSplitter</id>
+    <name>Commit Splitter</name>
+    <vendor email="support@commitsplitter.com" url="https://github.com/username/commit-splitter-plugin">Commit Splitter Team</vendor>
+
+    <description><![CDATA[
+    A powerful IntelliJ IDEA plugin that allows you to split a single git commit into multiple commits assigned to different users.
+    
+    Features:
+    - Right-click on any commit to split it
+    - Intelligent splitting strategies: by files, hunks, or lines
+    - Configure multiple users with usernames and emails
+    - Progressive commit creation maintaining git history
+    - Visual progress tracking
+    
+    Perfect for collaborative development and code review scenarios.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>Git4Idea</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Settings page -->
+        <applicationConfigurable 
+            parentId="tools" 
+            instance="com.github.commitSplitter.ui.CommitSplitterConfigurable"
+            id="com.github.commitSplitter.settings"
+            displayName="Commit Splitter"/>
+            
+        <!-- Persistent state component -->
+        <applicationService serviceImplementation="com.github.commitSplitter.services.CommitSplitterSettings"/>
+    </extensions>
+
+    <actions>
+        <action id="com.github.commitSplitter.SplitCommitAction"
+                class="com.github.commitSplitter.actions.SplitCommitAction"
+                text="Split Commit"
+                description="Split this commit into multiple commits for different users">
+            <add-to-group group-id="Vcs.Log.ContextMenu" anchor="last"/>
+        </action>
+    </actions>
+
+</idea-plugin>
