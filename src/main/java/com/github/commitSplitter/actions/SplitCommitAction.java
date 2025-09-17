@@ -4,7 +4,6 @@ import com.github.commitSplitter.services.CommitSplitterService;
 import com.github.commitSplitter.services.CommitSplitterSettings;
 import com.github.commitSplitter.services.RemoteConfig;
 import com.github.commitSplitter.ui.RemoteConfigDialog;
-import com.intellij.openapi.actionSystem.ActionUpdateThread;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
@@ -19,11 +18,6 @@ import git4idea.repo.GitRepositoryManager;
 import org.jetbrains.annotations.NotNull;
 
 public class SplitCommitAction extends AnAction {
-    
-    @Override
-    public @NotNull ActionUpdateThread getActionUpdateThread() {
-        return ActionUpdateThread.BGT;
-    }
     
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {

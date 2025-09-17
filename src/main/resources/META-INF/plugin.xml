@@ -17,6 +17,9 @@
     Perfect for collaborative development and code review scenarios.
     ]]></description>
 
+    <!-- Compatibility with IntelliJ IDEA versions -->
+    <idea-version since-build="211" until-build="221.*"/>
+
     <depends>com.intellij.modules.platform</depends>
     <depends>Git4Idea</depends>
 

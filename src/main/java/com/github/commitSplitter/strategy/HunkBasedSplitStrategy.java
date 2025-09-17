@@ -68,10 +68,16 @@ public class HunkBasedSplitStrategy extends AbstractSplitStrategy {
             for (int i = startHunkIndex; i < endHunkIndex && i < allHunks.size(); i++) {
                 GitUtils.CustomHunk hunk = allHunks.get(i);
                 try {
+                    System.out.println(String.format("Applying hunk %d/%d for user %s: %s", 
+                        i + 1, allHunks.size(), user.username, hunk.getFilePath()));
                     hunkApplier.applyHunk(hunk);
                     hasChanges = true;
+                    System.out.println("Successfully applied hunk " + (i + 1));
                 } catch (Exception e) {
-                    System.err.println("Failed to apply hunk " + (i + 1) + ": " + e.getMessage());
+                    System.err.println("Failed to apply hunk " + (i + 1) + " for file " + 
+                        hunk.getFilePath() + ": " + e.getMessage());
+                    e.printStackTrace();
+                    // 继续处理其他hunks，而不是中断整个过程
                 }
             }
             

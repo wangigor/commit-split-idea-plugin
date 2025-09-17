@@ -1,7 +1,7 @@
 plugins {
     id("java")
     id("org.jetbrains.kotlin.jvm") version "1.9.10"
-    id("org.jetbrains.intellij.platform") version "1.8.0"
+    id("org.jetbrains.intellij") version "1.16.1"
 }
 
 group = "com.github.commitSplitter"
@@ -9,9 +9,6 @@ version = "1.0.0"
 
 repositories {
     mavenCentral()
-    intellijPlatform {
-        defaultRepositories()
-    }
 }
 
 dependencies {
@@ -21,37 +18,16 @@ dependencies {
     // Add SLF4J for JGit logging
     implementation("org.slf4j:slf4j-api:2.0.9")
     implementation("org.slf4j:slf4j-simple:2.0.9")
-    
-    intellijPlatform {
-        intellijIdeaCommunity("2021.3")
-        bundledPlugin("Git4Idea")
-        
-        // 添加必要的依赖
-        instrumentationTools()
-        pluginVerifier()
-    }
 }
 
-intellijPlatform {
-    pluginConfiguration {
-        ideaVersion {
-            sinceBuild = "213"
-            untilBuild = "221.*"
-        }
-    }
+intellij {
+    version.set("2021.1")
+    type.set("IC") // IntelliJ IDEA Community Edition
     
-    publishing {
-        token = providers.environmentVariable("PUBLISH_TOKEN")
-    }
-    
-    signing {
-        certificateChain = providers.environmentVariable("CERTIFICATE_CHAIN")
-        privateKey = providers.environmentVariable("PRIVATE_KEY")
-        password = providers.environmentVariable("PRIVATE_KEY_PASSWORD")
-    }
+    plugins.set(listOf("Git4Idea"))
     
     // 禁用插桩来解决问题
-    instrumentCode = false
+    instrumentCode.set(false)
 }
 
 tasks {

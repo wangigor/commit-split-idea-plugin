@@ -35,11 +35,17 @@ public class HunkApplier {
         List<String> patchLines = hunk.generatePatchFormat();
         String patchContent = String.join("\n", patchLines);
         
+        System.out.println("Applying hunk for file: " + hunk.getFilePath());
+        System.out.println("Patch content length: " + patchContent.length() + " characters");
+        
+        // 验证patch内容
+        if (!validatePatchContent(patchContent, hunk.getFilePath())) {
+            throw new Exception("Invalid patch content for file: " + hunk.getFilePath());
+        }
+        
         // 检查文件是否存在（在重置后的工作区中）
         File targetFile = new File(gitRepository.getRoot().getPath(), hunk.getFilePath());
         boolean fileExists = targetFile.exists();
-        
-        // Check if file exists before applying patch
         
         if (!fileExists) {
             // 文件不存在，需要先创建文件结构
@@ -49,20 +55,67 @@ public class HunkApplier {
         // 应用智能路径修正 - 确保patch路径与文件系统路径一致
         String correctedPatchContent = smartCorrectPatchPaths(patchContent, hunk.getFilePath());
         
+        // 验证修正后的patch
+        if (!validatePatchContent(correctedPatchContent, hunk.getFilePath())) {
+            throw new Exception("Invalid corrected patch content for file: " + hunk.getFilePath());
+        }
+        
         // 首先尝试使用JGit ApplyCommand应用patch
         try {
             applyPatchUsingJGit(correctedPatchContent, hunk.getFilePath());
+            System.out.println("Successfully applied hunk using JGit for: " + hunk.getFilePath());
             
         } catch (Exception jgitException) {
+            System.err.println("JGit apply failed, trying git command line: " + jgitException.getMessage());
             // 如果JGit失败，尝试使用git命令行应用patch
             try {
                 applyPatchUsingGitApply(correctedPatchContent, hunk.getFilePath());
+                System.out.println("Successfully applied hunk using git apply for: " + hunk.getFilePath());
                 
             } catch (Exception gitException) {
+                System.err.println("Both JGit and git apply failed for: " + hunk.getFilePath());
+                System.err.println("JGit error: " + jgitException.getMessage());
+                System.err.println("Git apply error: " + gitException.getMessage());
+                System.err.println("Patch content:");
+                System.err.println(correctedPatchContent);
                 throw new Exception("Failed to apply hunk for " + hunk.getFilePath() + ": JGit error: " + 
                                     jgitException.getMessage() + ", Git apply error: " + gitException.getMessage(), jgitException);
             }
         }
+    }
+    
+    /**
+     * 验证patch内容的有效性
+     */
+    private boolean validatePatchContent(String patchContent, String filePath) {
+        if (patchContent == null || patchContent.trim().isEmpty()) {
+            System.err.println("Patch content is null or empty for file: " + filePath);
+            return false;
+        }
+        
+        // 检查是否包含基本的patch格式标记
+        boolean hasDiffHeader = patchContent.contains("diff --git") || 
+                                patchContent.contains("--- ") || 
+                                patchContent.contains("+++ ");
+        
+        // 检查是否包含hunk标记
+        boolean hasHunkMarker = patchContent.contains("@@");
+        
+        // 检查是否有实际的变更内容（+ 或 - 行）
+        boolean hasChanges = patchContent.contains("\n+") || patchContent.contains("\n-") ||
+                             patchContent.startsWith("+") || patchContent.startsWith("-");
+        
+        if (!hasDiffHeader) {
+            System.err.println("Patch missing diff headers for file: " + filePath);
+        }
+        if (!hasHunkMarker) {
+            System.err.println("Patch missing hunk markers (@@ lines) for file: " + filePath);
+        }
+        if (!hasChanges) {
+            System.err.println("Patch has no actual changes (+ or - lines) for file: " + filePath);
+        }
+        
+        return hasDiffHeader && hasHunkMarker && hasChanges;
     }
     
     /**
@@ -90,11 +143,20 @@ public class HunkApplier {
         // 创建临时patch文件
         java.io.File tempPatchFile = java.io.File.createTempFile("hunk-patch-", ".patch");
         try {
-            java.nio.file.Files.write(tempPatchFile.toPath(), patchContent.getBytes());
+            // 确保patch内容以换行符结尾
+            String normalizedPatchContent = patchContent;
+            if (!normalizedPatchContent.endsWith("\n")) {
+                normalizedPatchContent += "\n";
+            }
             
-            // 使用ProcessBuilder来执行git apply命令
+            java.nio.file.Files.write(tempPatchFile.toPath(), normalizedPatchContent.getBytes("UTF-8"));
+            
+            System.out.println("Created temporary patch file: " + tempPatchFile.getAbsolutePath());
+            System.out.println("Patch file size: " + tempPatchFile.length() + " bytes");
+            
+            // 首先尝试基本的git apply
             ProcessBuilder pb = new ProcessBuilder(
-                "git", "apply", "--verbose", tempPatchFile.getAbsolutePath()
+                "git", "apply", "--verbose", "--whitespace=fix", tempPatchFile.getAbsolutePath()
             );
             pb.directory(new File(gitRepository.getRoot().getPath()));
             pb.redirectErrorStream(true);
@@ -114,9 +176,32 @@ public class HunkApplier {
             int exitCode = process.waitFor();
             String outputStr = output.toString();
             
-            
             if (exitCode != 0) {
-                throw new Exception("Git apply failed with exit code " + exitCode + ": " + outputStr);
+                // 如果失败，尝试使用 --reject 选项获取更多信息
+                System.err.println("First git apply attempt failed, trying with --reject option");
+                
+                ProcessBuilder rejectPb = new ProcessBuilder(
+                    "git", "apply", "--reject", "--verbose", tempPatchFile.getAbsolutePath()
+                );
+                rejectPb.directory(new File(gitRepository.getRoot().getPath()));
+                rejectPb.redirectErrorStream(true);
+                
+                Process rejectProcess = rejectPb.start();
+                StringBuilder rejectOutput = new StringBuilder();
+                try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                        new java.io.InputStreamReader(rejectProcess.getInputStream()))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        rejectOutput.append(line).append("\n");
+                    }
+                }
+                
+                int rejectExitCode = rejectProcess.waitFor();
+                String rejectOutputStr = rejectOutput.toString();
+                
+                throw new Exception("Git apply failed with exit code " + exitCode + 
+                    ". Output: " + outputStr + 
+                    ". Reject attempt (exit code " + rejectExitCode + "): " + rejectOutputStr);
             }
             
         } finally {
@@ -154,43 +239,54 @@ public class HunkApplier {
      * 智能路径修正 - 处理复杂的路径匹配问题
      */
     private String smartCorrectPatchPaths(String patchContent, String filePath) {
-        // Apply smart path correction
+        System.out.println("Before path correction for file: " + filePath);
+        System.out.println("Original patch first 200 chars: " + 
+            (patchContent.length() > 200 ? patchContent.substring(0, 200) + "..." : patchContent));
         
-        // 文件实际存在的路径（相对于仓库根目录）
-        String actualFilePath = filePath;  // aitask-inter/src/main/java/...
-        
-        // 修正所有路径引用
         String correctedPatch = patchContent;
         
-        // 1. 修正 diff --git 行
-        correctedPatch = correctedPatch.replaceAll(
-            "diff --git a/" + Pattern.quote(actualFilePath) + " b/" + Pattern.quote(actualFilePath),
-            "diff --git a/" + actualFilePath + " b/" + actualFilePath
-        );
+        // 确保文件路径格式正确
+        String normalizedFilePath = filePath.replace("\\", "/");
         
-        // 2. 修正 --- 和 +++ 行
-        correctedPatch = correctedPatch.replaceAll(
-            "--- " + Pattern.quote(actualFilePath),
-            "--- a/" + actualFilePath
-        );
-        correctedPatch = correctedPatch.replaceAll(
-            "\\+\\+\\+ " + Pattern.quote(actualFilePath),
-            "+++ b/" + actualFilePath
-        );
+        // 如果patch中没有正确的文件路径格式，需要修正
+        String[] lines = correctedPatch.split("\n");
+        StringBuilder result = new StringBuilder();
         
-        // 3. 如果还没有a/和b/前缀，添加它们
-        if (!correctedPatch.contains("--- a/")) {
-            correctedPatch = correctedPatch.replaceAll(
-                "--- " + Pattern.quote(actualFilePath),
-                "--- a/" + actualFilePath
-            );
+        for (String line : lines) {
+            if (line.startsWith("diff --git")) {
+                // 确保diff行格式正确
+                if (!line.contains("a/" + normalizedFilePath) || !line.contains("b/" + normalizedFilePath)) {
+                    line = "diff --git a/" + normalizedFilePath + " b/" + normalizedFilePath;
+                }
+            } else if (line.startsWith("--- ")) {
+                // 修正 --- 行
+                if (line.equals("--- " + normalizedFilePath) || 
+                    line.equals("--- ./" + normalizedFilePath) ||
+                    !line.startsWith("--- a/")) {
+                    line = "--- a/" + normalizedFilePath;
+                }
+            } else if (line.startsWith("+++ ")) {
+                // 修正 +++ 行
+                if (line.equals("+++ " + normalizedFilePath) || 
+                    line.equals("+++ ./" + normalizedFilePath) ||
+                    !line.startsWith("+++ b/")) {
+                    line = "+++ b/" + normalizedFilePath;
+                }
+            }
+            
+            result.append(line).append("\n");
         }
-        if (!correctedPatch.contains("+++ b/")) {
-            correctedPatch = correctedPatch.replaceAll(
-                "\\+\\+\\+ " + Pattern.quote(actualFilePath),
-                "+++ b/" + actualFilePath
-            );
+        
+        // 移除最后一个多余的换行符
+        if (result.length() > 0 && result.charAt(result.length() - 1) == '\n') {
+            result.setLength(result.length() - 1);
         }
+        
+        correctedPatch = result.toString();
+        
+        System.out.println("After path correction:");
+        System.out.println("Corrected patch first 200 chars: " + 
+            (correctedPatch.length() > 200 ? correctedPatch.substring(0, 200) + "..." : correctedPatch));
         
         return correctedPatch;
     }

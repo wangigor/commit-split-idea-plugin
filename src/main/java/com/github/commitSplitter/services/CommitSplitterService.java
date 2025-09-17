@@ -134,17 +134,12 @@ public class CommitSplitterService {
     private void refreshVcsLog() {
         ApplicationManager.getApplication().invokeLater(() -> {
             try {
-                ActionManager actionManager = ActionManager.getInstance();
-                AnAction refreshAction = actionManager.getAction("Vcs.Log.Refresh");
-                if (refreshAction != null) {
-                    // 触发VCS Log刷新
-                    actionManager.tryToExecute(refreshAction, null, null, null, true);
-                    System.out.println("VCS Log refreshed successfully");
-                } else {
-                    System.out.println("VCS Log refresh action not found");
-                }
+                // 使用更安全的方式刷新VCS状态
+                // 避免使用可能导致空指针异常的tryToExecute方法
+                repository.update();
+                System.out.println("Repository state refreshed successfully");
             } catch (Exception e) {
-                System.err.println("Failed to refresh VCS Log: " + e.getMessage());
+                System.err.println("Failed to refresh repository state: " + e.getMessage());
             }
         });
     }
