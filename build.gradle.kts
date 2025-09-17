@@ -1,7 +1,7 @@
 plugins {
     id("java")
     id("org.jetbrains.kotlin.jvm") version "1.9.10"
-    id("org.jetbrains.intellij.platform") version "2.0.0"
+    id("org.jetbrains.intellij.platform") version "1.13.0"
 }
 
 group = "com.github.commitSplitter"
@@ -23,7 +23,7 @@ dependencies {
     implementation("org.slf4j:slf4j-simple:2.0.9")
     
     intellijPlatform {
-        intellijIdeaCommunity("2024.2")
+        intellijIdeaCommunity("2022.3")
         bundledPlugin("Git4Idea")
         
         // 添加必要的依赖
@@ -35,8 +35,8 @@ dependencies {
 intellijPlatform {
     pluginConfiguration {
         ideaVersion {
-            sinceBuild = "242"
-            untilBuild = "252.*"
+            sinceBuild = "223"
+            untilBuild = "231.*"
         }
     }
     
@@ -56,10 +56,10 @@ intellijPlatform {
 
 tasks {
     withType<JavaCompile> {
-        sourceCompatibility = "17"
-        targetCompatibility = "17"
+        sourceCompatibility = "11"
+        targetCompatibility = "11"
     }
     withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-        kotlinOptions.jvmTarget = "17"
+        kotlinOptions.jvmTarget = "11"
     }
 }
