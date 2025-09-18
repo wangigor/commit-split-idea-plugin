@@ -33,6 +33,9 @@
             
         <!-- Persistent state component -->
         <applicationService serviceImplementation="com.github.commitSplitter.services.CommitSplitterSettings"/>
+        
+        <!-- 启动时隐藏不需要的actions -->
+        <postStartupActivity implementation="com.github.commitSplitter.actions.ActionSuppressor"/>
     </extensions>
 
     <actions>
@@ -42,6 +45,7 @@
                 description="Split this commit into multiple commits for different users">
             <add-to-group group-id="Vcs.Log.ContextMenu" anchor="last"/>
         </action>
+        
     </actions>
 
 </idea-plugin>

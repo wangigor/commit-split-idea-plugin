@@ -94,6 +94,7 @@ public class SplitCommitAction extends AnAction {
     public void update(@NotNull AnActionEvent e) {
         Project project = e.getProject();
         boolean enabled = false;
+        boolean visible = false;
         
         if (project != null) {
             // 检查是否有选中的commit
@@ -101,12 +102,21 @@ public class SplitCommitAction extends AnAction {
             if (commitHash != null) {
                 // 检查是否是Git项目
                 GitRepository repository = getGitRepository(project);
-                enabled = repository != null; // 简化检查，移除State.NORMAL判断
+                if (repository != null) {
+                    enabled = true;
+                    visible = true;
+                }
             }
         }
         
         e.getPresentation().setEnabled(enabled);
-        e.getPresentation().setVisible(enabled);
+        e.getPresentation().setVisible(visible);
+        
+        // 确保只有我们的Split Commit action显示，其他的不相关action保持隐藏
+        if (visible) {
+            e.getPresentation().setText("Split Commit");
+            e.getPresentation().setDescription("Split this commit into multiple commits for different users");
+        }
     }
     
     private String getSelectedCommitHash(@NotNull AnActionEvent e) {
