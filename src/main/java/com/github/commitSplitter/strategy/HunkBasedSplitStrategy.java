@@ -12,14 +12,15 @@ import git4idea.repo.GitRepository;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class HunkBasedSplitStrategy extends AbstractSplitStrategy {
     
     @Override
-    public void execute(Project project, GitRepository repository, String commitHash, 
-                       String commitMessage, List<String> modifiedFiles, 
-                       List<CommitSplitterSettings.UserInfo> users, ProgressIndicator indicator, 
-                       RemoteConfig remoteConfig) throws Exception {
+    public void execute(Project project, GitRepository repository, String commitHash,
+                       String commitMessage, List<String> modifiedFiles,
+                       List<CommitSplitterSettings.UserInfo> users, ProgressIndicator indicator,
+                       RemoteConfig remoteConfig, Map<String, String> userPrefixes) throws Exception {
         
         // 收集所有hunks
         List<GitUtils.CustomHunk> allHunks = collectAllHunks(project, repository, commitHash, modifiedFiles);
@@ -84,7 +85,7 @@ public class HunkBasedSplitStrategy extends AbstractSplitStrategy {
             // 如果有变更，则创建提交
             if (hasChanges) {
                 hunkApplier.addFiles();
-                String newMessage = processCommitMessage(commitMessage, user.username);
+                String newMessage = processCommitMessage(commitMessage, user, userPrefixes);
                 hunkApplier.createCommit(newMessage, user);
                 
                 // 立即推送该用户的commit（使用该用户的凭据）

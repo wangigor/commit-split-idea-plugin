@@ -7,6 +7,7 @@ import com.intellij.openapi.project.Project;
 import git4idea.repo.GitRepository;
 
 import java.util.List;
+import java.util.Map;
 
 public interface SplitStrategy {
     /**
@@ -23,8 +24,8 @@ public interface SplitStrategy {
      */
     void execute(Project project, GitRepository repository, String commitHash, 
                 String commitMessage, List<String> modifiedFiles, 
-                List<CommitSplitterSettings.UserInfo> users, ProgressIndicator indicator, 
-                RemoteConfig remoteConfig) throws Exception;
+                List<CommitSplitterSettings.UserInfo> users, ProgressIndicator indicator,
+                RemoteConfig remoteConfig, Map<String, String> userPrefixes) throws Exception;
     
     /**
      * 检查是否能够执行该策略

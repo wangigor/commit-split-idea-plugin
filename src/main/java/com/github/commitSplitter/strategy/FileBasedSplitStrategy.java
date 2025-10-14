@@ -9,14 +9,15 @@ import git4idea.repo.GitRepository;
 
 import java.io.File;
 import java.util.List;
+import java.util.Map;
 
 public class FileBasedSplitStrategy extends AbstractSplitStrategy {
     
     @Override
-    public void execute(Project project, GitRepository repository, String commitHash, 
-                       String commitMessage, List<String> modifiedFiles, 
-                       List<CommitSplitterSettings.UserInfo> users, ProgressIndicator indicator, 
-                       RemoteConfig remoteConfig) throws Exception {
+    public void execute(Project project, GitRepository repository, String commitHash,
+                       String commitMessage, List<String> modifiedFiles,
+                       List<CommitSplitterSettings.UserInfo> users, ProgressIndicator indicator,
+                       RemoteConfig remoteConfig, Map<String, String> userPrefixes) throws Exception {
         
         // 获取父commit并重置到父commit状态
         String parentCommit = com.github.commitSplitter.utils.GitUtils.getParentCommitHash(repository, commitHash);
@@ -55,7 +56,7 @@ public class FileBasedSplitStrategy extends AbstractSplitStrategy {
             if (hasValidFiles) {
                 System.out.println("Adding files to staging area for user: " + user.username);
                 addAllFiles(project, repository);
-                String newMessage = processCommitMessage(commitMessage, user.username);
+                String newMessage = processCommitMessage(commitMessage, user, userPrefixes);
                 createCommit(project, repository, newMessage, user);
                 
                 // 立即推送该用户的commit（使用该用户的凭据）

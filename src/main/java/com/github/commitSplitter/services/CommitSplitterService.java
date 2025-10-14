@@ -16,7 +16,9 @@ import git4idea.repo.GitRepository;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 public class CommitSplitterService {
     private final Project project;
@@ -30,10 +32,15 @@ public class CommitSplitterService {
     }
     
     public void splitCommit(String commitHash, CommitSplitterSettings settings) {
-        splitCommit(commitHash, settings, null);
+        splitCommit(commitHash, settings, null, Collections.emptyMap());
     }
-    
+
     public void splitCommit(String commitHash, CommitSplitterSettings settings, RemoteConfig remoteConfig) {
+        splitCommit(commitHash, settings, remoteConfig, Collections.emptyMap());
+    }
+
+    public void splitCommit(String commitHash, CommitSplitterSettings settings,
+                             RemoteConfig remoteConfig, Map<String, String> userPrefixes) {
         ProgressManager.getInstance().run(new Task.Backgroundable(project, "Splitting Commit", true) {
             @Override
             public void run(@NotNull ProgressIndicator indicator) {
@@ -60,7 +67,11 @@ public class CommitSplitterService {
                     
                     indicator.setText("Executing split strategy: " + strategy.getStrategyName());
                     try {
-                        strategy.execute(project, repository, commitHash, commitMessage, modifiedFiles, settings.users, indicator, remoteConfig);
+                        Map<String, String> effectivePrefixes = userPrefixes != null
+                                ? userPrefixes
+                                : Collections.emptyMap();
+                        strategy.execute(project, repository, commitHash, commitMessage, modifiedFiles,
+                                settings.users, indicator, remoteConfig, effectivePrefixes);
                     } catch (Exception strategyException) {
                         System.err.println("Strategy execution failed: " + strategyException.getMessage());
                         strategyException.printStackTrace();

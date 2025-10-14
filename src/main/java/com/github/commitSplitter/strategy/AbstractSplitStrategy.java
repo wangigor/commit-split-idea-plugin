@@ -8,6 +8,8 @@ import git4idea.repo.GitRepository;
 
 import java.io.File;
 import java.net.URLEncoder;
+import java.util.Map;
+import java.util.regex.Pattern;
 
 public abstract class AbstractSplitStrategy implements SplitStrategy {
     
@@ -107,7 +109,7 @@ public abstract class AbstractSplitStrategy implements SplitStrategy {
     /**
      * 推送到远程仓库
      */
-    protected void pushToRemote(Project project, GitRepository repository, 
+    protected void pushToRemote(Project project, GitRepository repository,
                               CommitSplitterSettings.UserInfo user, RemoteConfig remoteConfig) throws Exception {
         String password = user.getPassword();
         if (password == null || password.trim().isEmpty()) {
@@ -274,7 +276,7 @@ public abstract class AbstractSplitStrategy implements SplitStrategy {
     /**
      * 使用临时远程URL进行推送
      */
-    private GitCommandResult pushWithTemporaryRemoteUrl(Project project, GitRepository repository, 
+    private GitCommandResult pushWithTemporaryRemoteUrl(Project project, GitRepository repository,
                                                        String authUrl, String branch, String remoteName) throws Exception {
         // 获取当前的远程URL
         String originalUrl = getRemoteUrlForRemote(project, repository, remoteName);
@@ -291,8 +293,8 @@ public abstract class AbstractSplitStrategy implements SplitStrategy {
             
             // 执行推送
             GitLineHandler pushHandler = new GitLineHandler(project, new File(repository.getRoot().getPath()), GitCommand.PUSH);
-            pushHandler.addParameters(remoteName, branch);
-            
+            pushHandler.addParameters(remoteName, buildPushRefSpec(branch));
+
             return git.runCommand(pushHandler);
             
         } finally {
@@ -314,42 +316,96 @@ public abstract class AbstractSplitStrategy implements SplitStrategy {
      */
     private GitCommandResult pushToRemote(Project project, GitRepository repository, String remoteName, String branch) {
         GitLineHandler pushHandler = new GitLineHandler(project, new File(repository.getRoot().getPath()), GitCommand.PUSH);
-        pushHandler.addParameters(remoteName, branch);
-        
+        pushHandler.addParameters(remoteName, buildPushRefSpec(branch));
+
         return git.runCommand(pushHandler);
     }
-    
-    
+
+
     /**
      * 处理commit消息，添加用户前缀
      */
-    protected String processCommitMessage(String originalMessage, String username) {
-        if (originalMessage == null) {
-            originalMessage = "";
+    protected String processCommitMessage(String originalMessage,
+                                          CommitSplitterSettings.UserInfo user,
+                                          Map<String, String> userPrefixes) {
+        String original = originalMessage != null ? originalMessage : "";
+        String prefix = resolvePrefix(user, userPrefixes);
+
+        if (prefix == null || prefix.trim().isEmpty()) {
+            return original;
         }
-        
-        // 检查是否已经有该用户的前缀
-        String expectedPrefix = "@" + username + " ";
-        if (originalMessage.startsWith(expectedPrefix)) {
-            System.out.println("Commit message already has correct user prefix for " + username + ": " + originalMessage);
-            return originalMessage; // 已经有正确的用户前缀
+
+        String sanitized = stripExistingPrefixes(original, prefix, user);
+
+        if (sanitized == null || sanitized.isBlank()) {
+            sanitized = original.trim();
         }
-        
-        // 如果有其他用户的前缀，替换为当前用户
-        if (originalMessage.startsWith("@")) {
-            // 找到第一个空格，替换用户名
-            int spaceIndex = originalMessage.indexOf(" ");
-            if (spaceIndex > 0) {
-                String restOfMessage = originalMessage.substring(spaceIndex + 1);
-                String newMessage = "@" + username + " " + restOfMessage;
-                System.out.println("Replaced existing user prefix with " + username + ": '" + newMessage + "'");
-                return newMessage;
+
+        if (sanitized.isEmpty()) {
+            return prefix.trim();
+        }
+
+        String trimmedPrefix = prefix.trim();
+        if (sanitized.startsWith(trimmedPrefix)) {
+            return sanitized;
+        }
+
+        if (Character.isWhitespace(sanitized.charAt(0)) || sanitized.startsWith("\n")) {
+            return trimmedPrefix + sanitized;
+        }
+
+        return trimmedPrefix + " " + sanitized;
+    }
+
+    private String resolvePrefix(CommitSplitterSettings.UserInfo user, Map<String, String> userPrefixes) {
+        if (userPrefixes != null) {
+            String provided = userPrefixes.get(user.username);
+            if (provided == null && user.email != null) {
+                provided = userPrefixes.get(user.email);
+            }
+            if (provided != null && !provided.trim().isEmpty()) {
+                return provided.trim();
             }
         }
-        
-        // 没有前缀，添加用户前缀
-        String newMessage = "@" + username + " " + originalMessage;
-        System.out.println("Added user prefix for " + username + ": '" + newMessage + "'");
-        return newMessage;
+        String username = user.username != null ? user.username : "";
+        if (username.isEmpty()) {
+            return "";
+        }
+        return "@" + username;
+    }
+
+    private String stripExistingPrefixes(String original, String targetPrefix, CommitSplitterSettings.UserInfo user) {
+        String result = original != null ? original : "";
+        String normalizedPrefix = targetPrefix != null ? targetPrefix.trim() : "";
+
+        if (!normalizedPrefix.isEmpty()) {
+            result = result.replaceFirst("^\\s*" + Pattern.quote(normalizedPrefix) + "\\b\\s*", "");
+        }
+
+        String username = user.username != null ? user.username : "";
+        if (!username.isEmpty()) {
+            result = result.replaceFirst("^\\s*" + Pattern.quote("@" + username) + "\\b\\s*", "");
+        }
+
+        result = result.replaceFirst("^\\s*@[^\\s]+\\b\\s*", "");
+
+        return result;
+    }
+
+    private String buildPushRefSpec(String branch) {
+        if (branch == null || branch.trim().isEmpty()) {
+            throw new IllegalArgumentException("Target branch name cannot be empty");
+        }
+        String trimmed = branch.trim();
+
+        if (trimmed.contains(":")) {
+            return trimmed;
+        }
+
+        if (trimmed.startsWith("refs/")) {
+            return "HEAD:" + trimmed;
+        }
+
+        return "HEAD:" + trimmed;
     }
 }

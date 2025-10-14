@@ -64,30 +64,26 @@ public class SplitCommitAction extends AnAction {
         boolean needsPush = settings.users.stream()
                 .anyMatch(user -> user.getPassword() != null && !user.getPassword().trim().isEmpty());
         
-        if (!needsPush) {
-            // 如果没有用户配置推送，直接执行拆分
-            executeSplit(project, repository, commitHash, settings, null);
-            return;
-        }
-        
-        // 显示远程配置对话框
-        RemoteConfigDialog dialog = new RemoteConfigDialog(project, repository);
+        RemoteConfigDialog dialog = new RemoteConfigDialog(project, repository, settings.users, needsPush);
         if (dialog.showAndGet()) {
             // 用户点击了确定，获取配置并执行拆分
-            RemoteConfig remoteConfig = new RemoteConfig(
-                    dialog.getSelectedRemote(),
-                    dialog.getSelectedBranch()
-            );
-            executeSplit(project, repository, commitHash, settings, remoteConfig);
+            RemoteConfig remoteConfig = null;
+            if (needsPush) {
+                remoteConfig = new RemoteConfig(
+                        dialog.getSelectedRemote(),
+                        dialog.getSelectedBranch()
+                );
+            }
+            executeSplit(project, repository, commitHash, settings, remoteConfig, dialog.getUserPrefixes());
         }
         // 如果用户取消，则不执行任何操作
     }
-    
+
     private void executeSplit(Project project, GitRepository repository, 
-                              String commitHash, CommitSplitterSettings settings, 
-                              RemoteConfig remoteConfig) {
+                              String commitHash, CommitSplitterSettings settings,
+                              RemoteConfig remoteConfig, java.util.Map<String, String> userPrefixes) {
         CommitSplitterService service = new CommitSplitterService(project, repository);
-        service.splitCommit(commitHash, settings, remoteConfig);
+        service.splitCommit(commitHash, settings, remoteConfig, userPrefixes);
     }
     
     @Override
