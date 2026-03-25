@@ -1,6 +1,7 @@
 package com.github.commitSplitter.ui;
 
 import com.github.commitSplitter.services.CommitSplitterSettings;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.ValidationInfo;
@@ -17,27 +18,32 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class RemoteConfigDialog extends DialogWrapper {
     private JComboBox<String> remoteComboBox;
     private JComboBox<String> branchComboBox;
     private final List<CommitSplitterSettings.UserInfo> users;
-    private final List<UserPrefixEntry> userPrefixEntries = new ArrayList<>();
+    private final List<UserEntry> userEntries = new ArrayList<>();
     private final boolean requireRemoteSelection;
     private final Project project;
     private final GitRepository repository;
     private final git4idea.commands.Git git;
+    private final String commitMessage;
 
     public RemoteConfigDialog(Project project,
                               GitRepository repository,
                               List<CommitSplitterSettings.UserInfo> users,
-                              boolean requireRemoteSelection) {
+                              boolean requireRemoteSelection,
+                              String commitMessage) {
         super(project);
         this.project = project;
         this.repository = repository;
         this.git = git4idea.commands.Git.getInstance();
         this.users = users;
         this.requireRemoteSelection = requireRemoteSelection;
+        this.commitMessage = commitMessage != null ? commitMessage : "";
 
         setTitle("Remote Repository Configuration");
         setOKButtonText("Continue Split");
@@ -47,6 +53,11 @@ public class RemoteConfigDialog extends DialogWrapper {
         if (requireRemoteSelection) {
             loadRemoteData();
         }
+    }
+
+    @Override
+    public @NotNull Dimension getPreferredSize() {
+        return new Dimension(700, super.getPreferredSize().height);
     }
 
     @Override
@@ -63,7 +74,6 @@ public class RemoteConfigDialog extends DialogWrapper {
         int row = 0;
 
         if (requireRemoteSelection) {
-            // Remote repository selection
             gbc.gridx = 0; gbc.gridy = row;
             gbc.weightx = 0.0;
             gbc.fill = GridBagConstraints.NONE;
@@ -78,7 +88,6 @@ public class RemoteConfigDialog extends DialogWrapper {
             gbc.fill = GridBagConstraints.HORIZONTAL;
             panel.add(remoteComboBox, gbc);
 
-            // Branch selection
             row++;
             gbc.gridx = 0; gbc.gridy = row;
             gbc.weightx = 0.0;
@@ -87,14 +96,13 @@ public class RemoteConfigDialog extends DialogWrapper {
 
             branchComboBox = new JComboBox<>();
             branchComboBox.setPreferredSize(new Dimension(200, branchComboBox.getPreferredSize().height));
-            branchComboBox.setEditable(true); // allow new branch input
+            branchComboBox.setEditable(true);
 
             gbc.gridx = 1;
             gbc.weightx = 1.0;
             gbc.fill = GridBagConstraints.HORIZONTAL;
             panel.add(branchComboBox, gbc);
 
-            // Help text
             row++;
             gbc.gridx = 0; gbc.gridy = row;
             gbc.gridwidth = 2;
@@ -105,95 +113,145 @@ public class RemoteConfigDialog extends DialogWrapper {
 
             row++;
         } else {
-            // When no remote selection is required, initialise combos to avoid NPE in getters
             remoteComboBox = new JComboBox<>();
             branchComboBox = new JComboBox<>();
         }
 
-        // Prefix section header
         gbc.gridx = 0; gbc.gridy = row;
         gbc.gridwidth = 2;
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        JLabel prefixHeader = new JLabel("Commit Message Prefixes");
-        prefixHeader.setFont(prefixHeader.getFont().deriveFont(Font.BOLD));
-        panel.add(prefixHeader, gbc);
+        JLabel selectHeader = new JLabel("Select Users");
+        selectHeader.setFont(selectHeader.getFont().deriveFont(Font.BOLD));
+        panel.add(selectHeader, gbc);
 
         row++;
 
-        if (users != null && !users.isEmpty()) {
+        if (users == null || users.isEmpty()) {
+            gbc.gridx = 0; gbc.gridy = row;
+            gbc.gridwidth = 2;
+            gbc.weightx = 1.0;
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+            panel.add(new JLabel("No users configured. Configure users in Settings → Tools → Commit Splitter."), gbc);
+            row++;
+        } else {
             for (CommitSplitterSettings.UserInfo user : users) {
                 String displayName = user.username;
                 if (user.email != null && !user.email.isEmpty()) {
                     displayName += " <" + user.email + ">";
                 }
 
+                JCheckBox checkBox = new JCheckBox();
+                checkBox.setSelected(true);
+
+                JLabel userLabel = new JLabel(displayName);
+
+                String defaultMessage = buildDefaultMessage(user, commitMessage);
+                JTextField messageField = new JTextField(defaultMessage, 60);
+                messageField.setToolTipText("Edit the full commit message for this user");
+
+                userEntries.add(new UserEntry(user, checkBox, messageField));
+
                 gbc.gridx = 0; gbc.gridy = row;
                 gbc.gridwidth = 1;
                 gbc.weightx = 0.0;
                 gbc.fill = GridBagConstraints.NONE;
-                panel.add(new JLabel(displayName + ":"), gbc);
+                gbc.insets = JBUI.insets(2, 15, 2, 5);
+                panel.add(checkBox, gbc);
 
-                JTextField prefixField = new JTextField(defaultPrefixFor(user), 25);
-                prefixField.setToolTipText("Prefix that will replace the beginning of the commit message for this user");
+                gbc.gridx = 1; gbc.gridy = row;
+                gbc.weightx = 0.0;
+                gbc.fill = GridBagConstraints.NONE;
+                gbc.insets = JBUI.insets(2, 5, 2, 5);
+                panel.add(userLabel, gbc);
 
-                gbc.gridx = 1;
+                row++;
+
+                gbc.gridx = 0; gbc.gridy = row;
+                gbc.gridwidth = 2;
                 gbc.weightx = 1.0;
                 gbc.fill = GridBagConstraints.HORIZONTAL;
-                panel.add(prefixField, gbc);
+                gbc.insets = JBUI.insets(2, 40, 2, 0);
+                panel.add(messageField, gbc);
 
-                userPrefixEntries.add(new UserPrefixEntry(user, prefixField));
                 row++;
             }
-        } else {
-            gbc.gridx = 0; gbc.gridy = row;
-            gbc.gridwidth = 2;
-            gbc.weightx = 1.0;
-            gbc.fill = GridBagConstraints.HORIZONTAL;
-            panel.add(new JLabel("No users configured. Configure users in Settings → Tools → Commit Splitter."), gbc);
         }
 
         return panel;
     }
 
+    private String buildDefaultMessage(CommitSplitterSettings.UserInfo user, String original) {
+        if (original == null || original.isEmpty()) {
+            return "";
+        }
+        String cleaned = original.trim();
+        String username = user.username != null ? user.username.trim() : "";
+        if (!username.isEmpty()) {
+            cleaned = cleaned.replaceFirst("^\\s*@" + Pattern.quote(username) + "\\s+", "");
+        }
+        return cleaned;
+    }
+
     private void loadRemoteData() {
-        SwingUtilities.invokeLater(() -> {
+        ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
-                // 加载远程仓库列表
                 List<String> remotes = getAvailableRemotes();
-                
-                remoteComboBox.removeAllItems();
-                for (String remote : remotes) {
-                    remoteComboBox.addItem(remote);
-                }
-                
-                // 默认选择 origin（如果存在）
-                if (remotes.contains("origin")) {
-                    remoteComboBox.setSelectedItem("origin");
-                } else if (!remotes.isEmpty()) {
-                    remoteComboBox.setSelectedIndex(0);
-                }
-                
-                // 加载分支列表
-                loadBranchesForSelectedRemote();
-                
-            } catch (Exception e) {
+                String currentBranch = getCurrentBranch();
+                List<String> remoteBranches = remotes.isEmpty() ? null : getRemoteBranches(remotes.get(remotes.contains("origin") ? remotes.indexOf("origin") : 0));
+
+                SwingUtilities.invokeLater(() -> {
+                    remoteComboBox.removeAllItems();
+                    for (String remote : remotes) {
+                        remoteComboBox.addItem(remote);
+                    }
+
+                    if (remotes.contains("origin")) {
+                        remoteComboBox.setSelectedItem("origin");
+                    } else if (!remotes.isEmpty()) {
+                        remoteComboBox.setSelectedIndex(0);
+                    }
+
+                    branchComboBox.removeAllItems();
+                    if (currentBranch != null && !currentBranch.trim().isEmpty()) {
+                        branchComboBox.addItem(currentBranch);
+                    }
+                    if (remoteBranches != null) {
+                        for (String branch : remoteBranches) {
+                            if (!branch.equals(currentBranch)) {
+                                branchComboBox.addItem(branch);
+                            }
+                        }
+                    }
+                    if (currentBranch != null) {
+                        branchComboBox.setSelectedItem(currentBranch);
+                    }
+                });
+            } catch (Throwable e) {
                 e.printStackTrace();
-                // 如果获取失败，至少提供基本选项
-                remoteComboBox.addItem("origin");
-                branchComboBox.addItem(getCurrentBranch());
+                SwingUtilities.invokeLater(() -> {
+                    remoteComboBox.removeAllItems();
+                    remoteComboBox.addItem("origin");
+                    branchComboBox.removeAllItems();
+                    branchComboBox.addItem("main");
+                });
             }
         });
     }
-    
+
     private List<String> getAvailableRemotes() throws Exception {
-        GitLineHandler handler = new GitLineHandler(project, new File(repository.getRoot().getPath()), GitCommand.REMOTE);
-        
-        GitCommandResult result = git.runCommand(handler);
+        GitLineHandler handler = new GitLineHandler(project, repository.getRoot(), GitCommand.REMOTE);
+
+        GitCommandResult result;
+        try {
+            result = git.runCommand(handler);
+        } catch (Throwable t) {
+            throw new Exception("Failed to get remotes: " + t.getMessage(), t);
+        }
         if (!result.success()) {
             throw new Exception("Failed to get remotes: " + String.join("\n", result.getErrorOutput()));
         }
-        
+
         List<String> remotes = new ArrayList<>();
         for (String line : result.getOutput()) {
             String remote = line.trim();
@@ -201,55 +259,50 @@ public class RemoteConfigDialog extends DialogWrapper {
                 remotes.add(remote);
             }
         }
-        
+
         return remotes;
     }
-    
+
     private void loadBranchesForSelectedRemote() {
         String selectedRemote = (String) remoteComboBox.getSelectedItem();
         if (selectedRemote == null || selectedRemote.trim().isEmpty()) {
             return;
         }
-        
-        SwingUtilities.invokeLater(() -> {
-            try {
-                branchComboBox.removeAllItems();
-                
-                // 获取当前分支
-                String currentBranch = getCurrentBranch();
-                if (currentBranch != null && !currentBranch.trim().isEmpty()) {
-                    branchComboBox.addItem(currentBranch);
-                }
-                
-                // 获取远程分支列表
-                List<String> remoteBranches = getRemoteBranches(selectedRemote);
-                for (String branch : remoteBranches) {
-                    if (!branch.equals(currentBranch)) {
-                        branchComboBox.addItem(branch);
-                    }
-                }
-                
-                // 默认选择当前分支
-                if (currentBranch != null) {
-                    branchComboBox.setSelectedItem(currentBranch);
-                }
 
-            } catch (Exception e) {
-                e.printStackTrace();
-                // 如果获取失败，提供当前分支作为默认选项
+        ApplicationManager.getApplication().executeOnPooledThread(() -> {
+            try {
                 String currentBranch = getCurrentBranch();
-                if (currentBranch != null) {
-                    branchComboBox.addItem(currentBranch);
-                }
+                List<String> remoteBranches = getRemoteBranches(selectedRemote);
+
+                SwingUtilities.invokeLater(() -> {
+                    branchComboBox.removeAllItems();
+                    if (currentBranch != null && !currentBranch.trim().isEmpty()) {
+                        branchComboBox.addItem(currentBranch);
+                    }
+                    for (String branch : remoteBranches) {
+                        if (!branch.equals(currentBranch)) {
+                            branchComboBox.addItem(branch);
+                        }
+                    }
+                    if (currentBranch != null) {
+                        branchComboBox.setSelectedItem(currentBranch);
+                    }
+                });
+            } catch (Throwable e) {
+                e.printStackTrace();
+                SwingUtilities.invokeLater(() -> {
+                    branchComboBox.removeAllItems();
+                    branchComboBox.addItem("main");
+                });
             }
         });
     }
-    
+
     private String getCurrentBranch() {
         try {
             GitLineHandler handler = new GitLineHandler(project, new File(repository.getRoot().getPath()), GitCommand.REV_PARSE);
             handler.addParameters("--abbrev-ref", "HEAD");
-            
+
             GitCommandResult result = git.runCommand(handler);
             if (result.success() && !result.getOutput().isEmpty()) {
                 return result.getOutput().get(0).trim();
@@ -257,35 +310,34 @@ public class RemoteConfigDialog extends DialogWrapper {
         } catch (Exception e) {
             e.printStackTrace();
         }
-        return "main"; // 默认分支名
+        return "main";
     }
-    
+
     private List<String> getRemoteBranches(String remote) throws Exception {
-        GitLineHandler handler = new GitLineHandler(project, new File(repository.getRoot().getPath()), GitCommand.BRANCH);
+        GitLineHandler handler = new GitLineHandler(project, repository.getRoot(), GitCommand.BRANCH);
         handler.addParameters("-r");
-        
+
         GitCommandResult result = git.runCommand(handler);
         if (!result.success()) {
             throw new Exception("Failed to get remote branches: " + String.join("\n", result.getErrorOutput()));
         }
-        
+
         List<String> branches = new ArrayList<>();
         String remotePrefix = remote + "/";
-        
+
         for (String line : result.getOutput()) {
             String branch = line.trim();
             if (branch.startsWith(remotePrefix)) {
-                // 移除远程前缀，只保留分支名
                 String branchName = branch.substring(remotePrefix.length());
-                if (!branchName.contains("HEAD")) { // 跳过 HEAD 引用
+                if (!branchName.contains("HEAD")) {
                     branches.add(branchName);
                 }
             }
         }
-        
+
         return branches;
     }
-    
+
     @Override
     protected ValidationInfo doValidate() {
         if (requireRemoteSelection) {
@@ -300,10 +352,15 @@ public class RemoteConfigDialog extends DialogWrapper {
             }
         }
 
-        for (UserPrefixEntry entry : userPrefixEntries) {
-            String value = entry.prefixField.getText();
-            if (value == null || value.trim().isEmpty()) {
-                return new ValidationInfo("Please provide a prefix for " + entry.user.username, entry.prefixField);
+        List<UserEntry> selected = getSelectedEntries();
+        if (selected.isEmpty()) {
+            return new ValidationInfo("Please select at least one user", userEntries.isEmpty() ? null : userEntries.get(0).checkBox);
+        }
+
+        for (UserEntry entry : selected) {
+            String text = entry.messageField.getText();
+            if (text == null || text.trim().isEmpty()) {
+                return new ValidationInfo("Please provide a commit message for " + entry.user.username, entry.messageField);
             }
         }
 
@@ -320,23 +377,31 @@ public class RemoteConfigDialog extends DialogWrapper {
         return normalizeBranch(selected != null ? selected.toString() : "main");
     }
 
-    public Map<String, String> getUserPrefixes() {
+    public List<CommitSplitterSettings.UserInfo> getSelectedUsers() {
+        return getSelectedEntries().stream()
+                .map(e -> e.user)
+                .collect(Collectors.toList());
+    }
+
+    public Map<String, String> getUserMessages() {
         Map<String, String> result = new LinkedHashMap<>();
-        for (UserPrefixEntry entry : userPrefixEntries) {
-            String prefix = entry.prefixField.getText();
-            if (prefix != null) {
-                result.put(entry.user.username, prefix.trim());
+        for (UserEntry entry : getSelectedEntries()) {
+            String text = entry.messageField.getText();
+            if (text != null) {
+                result.put(entry.user.username, text.trim());
             }
         }
         return result;
     }
 
-    private String defaultPrefixFor(CommitSplitterSettings.UserInfo user) {
-        String username = user.username != null ? user.username : "";
-        if (username.isEmpty()) {
-            return "";
+    private List<UserEntry> getSelectedEntries() {
+        List<UserEntry> selected = new ArrayList<>();
+        for (UserEntry entry : userEntries) {
+            if (entry.checkBox.isSelected()) {
+                selected.add(entry);
+            }
         }
-        return "@" + username;
+        return selected;
     }
 
     private String normalizeBranch(String rawBranch) {
@@ -373,13 +438,15 @@ public class RemoteConfigDialog extends DialogWrapper {
         return trimmed;
     }
 
-    private static class UserPrefixEntry {
-        private final CommitSplitterSettings.UserInfo user;
-        private final JTextField prefixField;
+    private static class UserEntry {
+        final CommitSplitterSettings.UserInfo user;
+        final JCheckBox checkBox;
+        final JTextField messageField;
 
-        private UserPrefixEntry(CommitSplitterSettings.UserInfo user, JTextField prefixField) {
+        UserEntry(CommitSplitterSettings.UserInfo user, JCheckBox checkBox, JTextField messageField) {
             this.user = user;
-            this.prefixField = prefixField;
+            this.checkBox = checkBox;
+            this.messageField = messageField;
         }
     }
 }

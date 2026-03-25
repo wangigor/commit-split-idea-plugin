@@ -35,7 +35,7 @@ public class GitUtils {
             
             try (RevWalk revWalk = new RevWalk(repository)) {
                 RevCommit commit = revWalk.parseCommit(commitId);
-                return commit.getShortMessage();
+                return commit.getFullMessage().trim();
             }
         }
     }
@@ -98,7 +98,29 @@ public class GitUtils {
             }
         }
     }
-    
+
+    public static boolean commitExists(GitRepository gitRepository, String commitHash) {
+        if (commitHash == null || commitHash.trim().isEmpty()) {
+            return false;
+        }
+
+        try (Repository repository = openJGitRepository(gitRepository)) {
+            ObjectId commitId = repository.resolve(commitHash);
+            if (commitId == null) {
+                return false;
+            }
+
+            try (RevWalk revWalk = new RevWalk(repository)) {
+                RevCommit commit = revWalk.parseCommit(commitId);
+                return commit != null;
+            }
+
+        } catch (Exception e) {
+            System.err.println("commitExists check failed: " + e.getMessage());
+            return false;
+        }
+    }
+
     private static Repository openJGitRepository(GitRepository gitRepository) throws IOException {
         File gitDir = new File(gitRepository.getRoot().getPath(), ".git");
         return new FileRepositoryBuilder()
@@ -212,15 +234,23 @@ public class GitUtils {
     }
     
     // 保存完整的Git hunk（包含原始@@头部）
-    private static void saveCompleteHunk(List<CustomHunk> hunks, List<String> patchHeaders, 
+    private static void saveCompleteHunk(List<CustomHunk> hunks, List<String> patchHeaders,
                                        List<String> hunkLines, String filePath, int hunkId) {
         if (hunkLines.isEmpty()) return;
-        
+
+        // 从第一行（@@行）中解析行号范围
+        int changeLineCount = 0;
+        int startNewLine = hunkId;
+        String firstLine = hunkLines.get(0);
+        int[] parsed = parseAtAtLine(firstLine);
+        if (parsed != null) {
+            startNewLine = parsed[2];
+            changeLineCount = parsed[3];
+        }
+
         List<String> completePatch = new ArrayList<>();
-        
-        // 添加patch头部信息
+
         if (patchHeaders.isEmpty() || patchHeaders.size() < 2) {
-            // 如果没有完整的头部，生成标准的patch头部
             completePatch.add("diff --git a/" + filePath + " b/" + filePath);
             completePatch.add("index 0000000..0000000 100644");
             completePatch.add("--- a/" + filePath);
@@ -228,15 +258,29 @@ public class GitUtils {
         } else {
             completePatch.addAll(patchHeaders);
         }
-        
-        // 添加完整的hunk内容（包括@@头部和所有变更行）
+
         completePatch.addAll(hunkLines);
-        
-        // 确定hunk类型
+
         HunkType hunkType = determineHunkType(hunkLines);
-        
-        CustomHunk hunk = new CustomHunk(hunkType, completePatch, filePath, hunkId);
+
+        CustomHunk hunk = new CustomHunk(hunkType, completePatch, filePath, hunkId,
+                                        changeLineCount, startNewLine);
         hunks.add(hunk);
+    }
+
+    private static int[] parseAtAtLine(String line) {
+        // 格式: @@ -oldStart[,oldCount] +newStart[,newCount] @@
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+            "@@ -(\\d+)(?:,(\\d+))? \\+(\\d+)(?:,(\\d+))? @@");
+        java.util.regex.Matcher m = p.matcher(line);
+        if (m.find()) {
+            int oldStart = Integer.parseInt(m.group(1));
+            int oldCount = m.group(2) == null ? 1 : Integer.parseInt(m.group(2));
+            int newStart = Integer.parseInt(m.group(3));
+            int newCount = m.group(4) == null ? 1 : Integer.parseInt(m.group(4));
+            return new int[]{oldStart, oldCount, newStart, newCount};
+        }
+        return null;
     }
     
     // 根据hunk内容确定类型
@@ -364,35 +408,40 @@ public class GitUtils {
         private final String filePath;
         private final int startLineNumber;
         private final int lineCount;
+        private final int changeLineCount;
+        private final int startNewLine;
         private String commitHash;
-        
-        public CustomHunk(HunkType type, List<String> hunkLines, String filePath, int startLineNumber) {
+
+        public CustomHunk(HunkType type, List<String> hunkLines, String filePath, int startLineNumber,
+                         int changeLineCount, int startNewLine) {
             this.type = type;
             this.hunkLines = new ArrayList<>(hunkLines);
             this.filePath = filePath;
             this.startLineNumber = startLineNumber;
             this.lineCount = hunkLines.size();
+            this.changeLineCount = changeLineCount;
+            this.startNewLine = startNewLine;
         }
-        
+
         public HunkType getType() { return type; }
         public List<String> getHunkLines() { return hunkLines; }
         public String getFilePath() { return filePath; }
         public int getStartLineNumber() { return startLineNumber; }
         public int getLineCount() { return lineCount; }
+        public int getChangeLineCount() { return changeLineCount; }
+        public int getStartNewLine() { return startNewLine; }
         public String getCommitHash() { return commitHash; }
-        
+
         public void setCommitHash(String commitHash) {
             this.commitHash = commitHash;
         }
-        
+
         public String getDescription() {
-            return String.format("%s (%d lines) at line %d", 
-                type.getChineseName(), lineCount, startLineNumber);
+            return String.format("%s (change:%d lines) at new line %d",
+                type.getChineseName(), changeLineCount, startNewLine);
         }
-        
-        // 生成完整的patch格式用于应用（现在直接返回已构建的完整patch）
+
         public List<String> generatePatchFormat() {
-            // 现在hunkLines已经包含了完整的patch格式（包括headers和@@行）
             return new ArrayList<>(hunkLines);
         }
     }

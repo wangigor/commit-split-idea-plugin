@@ -15,31 +15,27 @@ public class FileBasedSplitStrategy extends AbstractSplitStrategy {
     
     @Override
     public void execute(Project project, GitRepository repository, String commitHash,
-                       String commitMessage, List<String> modifiedFiles,
+                       List<String> modifiedFiles,
                        List<CommitSplitterSettings.UserInfo> users, ProgressIndicator indicator,
-                       RemoteConfig remoteConfig, Map<String, String> userPrefixes) throws Exception {
-        
-        // 获取父commit并重置到父commit状态
+                       RemoteConfig remoteConfig, Map<String, String> userMessages) throws Exception {
+
         String parentCommit = com.github.commitSplitter.utils.GitUtils.getParentCommitHash(repository, commitHash);
         resetToParent(project, repository, parentCommit);
-        
+
         int filesPerUser = Math.max(1, modifiedFiles.size() / users.size());
         int currentFileIndex = 0;
-        
+
         for (int userIndex = 0; userIndex < users.size(); userIndex++) {
             CommitSplitterSettings.UserInfo user = users.get(userIndex);
-            
-            indicator.setText(String.format("Processing files for user %s (%d/%d)...", 
+
+            indicator.setText(String.format("Processing files for user %s (%d/%d)...",
                             user.username, userIndex + 1, users.size()));
-            
-            // 计算当前用户处理的文件数量
+
             int filesToProcess = filesPerUser;
             if (userIndex == users.size() - 1) {
-                // 最后一个用户处理剩余的所有文件
                 filesToProcess = modifiedFiles.size() - currentFileIndex;
             }
-            
-            // 检出分配给当前用户的文件
+
             boolean hasValidFiles = false;
             for (int i = 0; i < filesToProcess && currentFileIndex < modifiedFiles.size(); i++) {
                 String file = modifiedFiles.get(currentFileIndex++);
@@ -51,21 +47,18 @@ public class FileBasedSplitStrategy extends AbstractSplitStrategy {
                     System.err.println("Failed to checkout file " + file + " for user " + user.username + ": " + e.getMessage());
                 }
             }
-            
-            // 如果有文件被成功检出，则创建提交
+
             if (hasValidFiles) {
                 System.out.println("Adding files to staging area for user: " + user.username);
                 addAllFiles(project, repository);
-                String newMessage = processCommitMessage(commitMessage, user, userPrefixes);
-                createCommit(project, repository, newMessage, user);
-                
-                // 立即推送该用户的commit（使用该用户的凭据）
+                String message = userMessages.get(user.username);
+                createCommit(project, repository, message != null ? message : "", user);
                 pushToRemote(project, repository, user, remoteConfig);
-                
+
             } else {
                 System.out.println("No valid files to commit for user: " + user.username);
             }
-            
+
             indicator.setFraction(0.4 + 0.5 * (userIndex + 1) / users.size());
         }
     }

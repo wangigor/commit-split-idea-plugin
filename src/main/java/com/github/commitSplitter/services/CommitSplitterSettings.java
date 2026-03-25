@@ -117,8 +117,9 @@ public class CommitSplitterSettings implements PersistentStateComponent<CommitSp
     public enum SplitStrategy {
         AUTO("Auto (Smart Selection)"),
         FILES("By Files"),
-        HUNKS("By Code Hunks");
-        
+        HUNKS("By Code Hunks"),
+        LINES("By Code Lines");
+
         private final String displayName;
         
         SplitStrategy(String displayName) {
